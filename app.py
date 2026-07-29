@@ -4,6 +4,22 @@ from google.oauth2.service_account import Credentials
 import json
 from datetime import datetime
 import pandas as pd
+import requests # НОВАЯ БИБЛИОТЕКА ДЛЯ ТЕЛЕГРАМА
+
+# --- ФУНКЦИЯ ДЛЯ ТЕЛЕГРАМА ---
+def send_telegram_message(text):
+    try:
+        token = st.secrets["telegram_token"]
+        chat_id = st.secrets["telegram_chat_id"]
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        payload = {
+            "chat_id": chat_id, 
+            "text": text, 
+            "parse_mode": "HTML"
+        }
+        requests.post(url, json=payload)
+    except Exception as e:
+        print(f"Ошибка отправки в Telegram: {e}")
 
 # 1. Настройка страницы
 st.set_page_config(page_title="Наши Ритуалы", page_icon="✨", layout="centered")
@@ -19,7 +35,6 @@ theme_choice = st.sidebar.radio(
     index=0 if st.query_params["theme"] == "dark" else 1
 )
 
-# Инверсия цветов
 if theme_choice == "Темная тема 🌙":
     st.query_params["theme"] = "dark"
     bg_color = "#000000"
@@ -31,53 +46,26 @@ else:
     text_color = "#000000"
     input_bg = "#f9f9f9"
 
-# Глубокий CSS для переопределения всех элементов Streamlit
 st.markdown(f"""
     <style>
-    /* Основной фон */
     .stApp, .stApp > header {{ background-color: {bg_color} !important; }}
     h1, h2, h3, p, label, span {{ color: {text_color} !important; font-family: 'Arial', sans-serif; }}
     
-    /* Поля ввода */
     .stTextInput input, .stSelectbox div[data-baseweb="select"] {{
         background-color: {input_bg} !important;
         color: {text_color} !important;
         border: 1px solid {text_color} !important;
     }}
     
-    /* ИСПРАВЛЕНИЕ: Цвет текста-подсказки (placeholder) */
-    .stTextInput input::placeholder {{
-        color: {text_color} !important;
-        opacity: 0.5 !important;
-    }}
+    .stTextInput input::placeholder {{ color: {text_color} !important; opacity: 0.5 !important; }}
     
-    /* Выпадающее меню (которое выпадает поверх всего) */
-    div[data-baseweb="popover"] > div, ul[role="listbox"] {{
-        background-color: {input_bg} !important;
-    }}
-    li[role="option"] {{
-        background-color: {input_bg} !important;
-        color: {text_color} !important;
-    }}
-    li[role="option"]:hover {{
-        background-color: {text_color} !important;
-        color: {bg_color} !important;
-    }}
+    div[data-baseweb="popover"] > div, ul[role="listbox"] {{ background-color: {input_bg} !important; }}
+    li[role="option"] {{ background-color: {input_bg} !important; color: {text_color} !important; }}
+    li[role="option"]:hover {{ background-color: {text_color} !important; color: {bg_color} !important; }}
     
-    /* Кнопка */
-    div[data-testid="stFormSubmitButton"] button {{
-        background-color: {text_color} !important;
-        border: 2px solid {text_color} !important;
-    }}
-    div[data-testid="stFormSubmitButton"] button p {{
-        color: {bg_color} !important;
-        font-weight: bold !important;
-    }}
-    div[data-testid="stFormSubmitButton"] button:hover {{
-        opacity: 0.8;
-    }}
-    
-    /* Цвет иконок (стрелочки меню) */
+    div[data-testid="stFormSubmitButton"] button {{ background-color: {text_color} !important; border: 2px solid {text_color} !important; }}
+    div[data-testid="stFormSubmitButton"] button p {{ color: {bg_color} !important; font-weight: bold !important; }}
+    div[data-testid="stFormSubmitButton"] button:hover {{ opacity: 0.8; }}
     svg {{ fill: {text_color} !important; }}
     </style>
 """, unsafe_allow_html=True)
@@ -145,7 +133,6 @@ with st.form("habit_form"):
     submitted = st.form_submit_button("Я выполнил(а)! Сохранить ✨")
     
     if submitted:
-        # УМНЫЙ АЛГОРИТМ ПЕРЕНОСА СМАЙЛИКА
         raw_ritual = custom_ritual.strip()
         if raw_ritual:
             parts = raw_ritual.split()
@@ -180,14 +167,20 @@ with st.form("habit_form"):
             if new_together == "✅":
                 st.success(f"Ого! {partner} тоже выполнил(а) это. Галочка ВМЕСТЕ получена! 🎉")
                 st.balloons()
+                # УВЕДОМЛЕНИЕ О СОВМЕСТНОМ ВЫПОЛНЕНИЙ
+                send_telegram_message(f"🎉 <b>Ура!</b> Вы оба выполнили: <b>{final_ritual}</b>!\nГалочка ВМЕСТЕ получена! ✨")
             else:
                 st.success("Отлично! Галочка поставлена. Ждем партнера ✨")
+                # УВЕДОМЛЕНИЕ ДЛЯ ПАРТНЕРА
+                send_telegram_message(f"<b>{current_user}</b> только что выполнил(а):\n👉 <b>{final_ritual}</b>\n\n{partner}, теперь твоя очередь! ✨")
         else:
             new_fox = "✅" if current_user == "Лисичка 🦊" else "❌"
             new_bear = "✅" if current_user == "Мишка 🐻" else "❌"
             
             sheet.append_row([date_input, final_ritual, new_fox, new_bear, "❌"])
             st.success(f"Записано в историю! Ждем партнера ✨")
+            # УВЕДОМЛЕНИЕ ДЛЯ ПАРТНЕРА (когда создается новая запись)
+            send_telegram_message(f"<b>{current_user}</b> только что выполнил(а):\n👉 <b>{final_ritual}</b>\n\n{partner}, теперь твоя очередь! ✨")
 
 st.divider()
 st.subheader("📖 Наша история")
