@@ -24,15 +24,18 @@ st.divider()
 @st.cache_resource
 def init_connection():
     key_dict = json.loads(st.secrets["json_key"])
-    credentials = Credentials.from_service_account_info(key_dict, scopes=["https://www.googleapis.com/auth/spreadsheets"])
+    # ДОБАВЛЕН ДОСТУП К DRIVE API ДЛЯ ПОИСКА ТАБЛИЦЫ ПО ИМЕНИ
+    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+    credentials = Credentials.from_service_account_info(key_dict, scopes=scopes)
     return gspread.authorize(credentials)
 
 try:
     client = init_connection()
-    # ВАЖНО: Имя таблицы в точности как на вашем скриншоте
     sheet = client.open("Наши ритуалы").sheet1 
 except Exception as e:
-    st.error("Ошибка подключения к таблице. Проверьте секреты (Secrets).")
+    # ТЕПЕРЬ МЫ УВИДИМ НАСТОЯЩУЮ ОШИБКУ, ЕСЛИ ОНА БУДЕТ
+    st.error(f"Диагностика ошибки: {e}")
+    st.info("💡 Если выше написано 'Google Drive API has not been used', вам нужно зайти в Google Cloud -> Library -> найти Google Drive API и нажать Enable.")
     st.stop()
 
 st.subheader("📝 Отметить выполнение")
@@ -57,12 +60,10 @@ with st.form("habit_form"):
     submitted = st.form_submit_button("Сохранить в нашу историю ✨")
     
     if submitted:
-        # Превращаем галочки в эмодзи для таблицы
         fox_val = "✅" if fox_done else "❌"
         bear_val = "✅" if bear_done else "❌"
         we_val = "✅" if we_done else "❌"
         
-        # Отправляем 5 колонок ровно в том порядке, как у вас в таблице
         sheet.append_row([date_input, ritual, fox_val, bear_val, we_val])
         st.success("Ура! Традиция сохранена в нашу историю 🎉")
         st.balloons()
@@ -76,5 +77,5 @@ try:
         st.dataframe(df, use_container_width=True)
     else:
         st.info("Пока нет записей. Отметьте ваш первый ритуал!")
-except Exception:
-    st.warning("Не удалось загрузить историю. Проверьте названия колонок в таблице.")
+except Exception as e:
+    st.warning(f"Не удалось загрузить историю. Ошибка: {e}")
