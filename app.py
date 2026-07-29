@@ -55,6 +55,7 @@ else:
     st.query_params["theme"] = "light"
     bg_color, text_color, input_bg = "#ffffff", "#000000", "#f9f9f9"
 
+# В этот CSS добавлен блок @keyframes breathe для анимации дыхания питомца!
 st.markdown(f"""
     <style>
     .stApp, .stApp > header {{ background-color: {bg_color} !important; }}
@@ -70,6 +71,18 @@ st.markdown(f"""
     div[data-testid="stFormSubmitButton"] button:hover {{ opacity: 0.8; }}
     svg {{ fill: {text_color} !important; }}
     .stTabs [data-baseweb="tab-list"] button {{ color: {text_color} !important; }}
+    
+    /* Анимация питомца */
+    @keyframes breathe {{
+        0% {{ transform: scale(1); }}
+        50% {{ transform: scale(1.05); }}
+        100% {{ transform: scale(1); }}
+    }}
+    [data-testid="stImage"] img {{
+        animation: breathe 3.5s ease-in-out infinite;
+        border-radius: 15px;
+        box-shadow: 0px 4px 12px rgba(0,0,0,0.1);
+    }}
     </style>
 """, unsafe_allow_html=True)
 
@@ -102,9 +115,30 @@ except Exception as e:
 
 current_streak = get_streak(records)
 
-col_title, col_streak = st.columns([3, 1])
-with col_title: st.title("✨ Наши Ритуалы")
-with col_streak: st.metric(label="Дней подряд", value=f"🔥 {current_streak}")
+# --- ЛОГИКА ПИТОМЦА ---
+today_str = datetime.now().strftime("%Y-%m-%d")
+# Проверяем, есть ли хоть одна запись на сегодня от кого-либо
+any_done_today = any(str(r.get('Дата')) == today_str for r in records)
+
+# Эволюция: Стадия 1 (от 0 до 13 дней), Стадия 2 (от 14 дней и выше)
+stage = 2 if current_streak >= 14 else 1
+# Настроение: Радостный, если сегодня уже есть активность
+mood = "happy" if any_done_today else "sad"
+
+pet_image_path = f"stage{stage}_{mood}.png"
+
+# --- ВЕРХНЯЯ ЧАСТЬ ЭКРАНА С ПИТОМЦЕМ ---
+col_title, col_pet, col_streak = st.columns([2, 1, 1])
+with col_title: 
+    st.title("✨ Наши Ритуалы")
+with col_pet:
+    try:
+        # Пытаемся показать картинку. Если файла нет, покажет заглушку
+        st.image(pet_image_path, use_container_width=True)
+    except Exception:
+        st.info("🐣 Загружаю...")
+with col_streak: 
+    st.metric(label="Дней подряд", value=f"🔥 {current_streak}")
 st.divider()
 
 tab1, tab2 = st.tabs(["📝 Трекер", "📊 Статистика"])
@@ -118,8 +152,6 @@ with tab1:
         date_input = st.text_input("Дата", value=datetime.now().strftime("%Y-%m-%d"))
         selected_ritual = st.selectbox("Что выполнили?", all_rituals)
         custom_ritual = st.text_input("ИЛИ впишите новый ритуал:")
-        
-        # НОВОЕ ПОЛЕ: ТАЙНОЕ ПОСЛАНИЕ
         secret_message = st.text_area("💌 Оставить тайное послание партнеру (необязательно):", placeholder="Оно откроется, когда партнер тоже выполнит этот ритуал...")
         
         submitted = st.form_submit_button("Я выполнил(а)! Сохранить ✨")
@@ -140,8 +172,6 @@ with tab1:
                     match_idx = i + 2 
                     existing_fox = row.get('Лисичка 🦊', '❌')
                     existing_bear = row.get('Мишка 🐻', '❌')
-                    
-                    # Читаем послание партнера
                     msg_col = 'Послание Мишки' if partner == "Мишка 🐻" else 'Послание Лисички'
                     partner_msg = str(row.get(msg_col, '')).strip()
                     break
@@ -155,7 +185,6 @@ with tab1:
                 sheet.update_cell(match_idx, 4, new_bear)
                 sheet.update_cell(match_idx, 5, new_together)
                 
-                # Записываем наше послание
                 my_col_idx = 6 if current_user == "Лисичка 🦊" else 7
                 if secret_message.strip():
                     sheet.update_cell(match_idx, my_col_idx, secret_message.strip())
@@ -163,8 +192,6 @@ with tab1:
                 if new_together == "✅":
                     st.balloons()
                     st.success(f"Ого! {partner} тоже выполнил(а) это. Галочка ВМЕСТЕ получена! 🎉")
-                    
-                    # ПОКАЗЫВАЕМ СЕКРЕТНОЕ ПОСЛАНИЕ
                     if partner_msg:
                         st.info(f"💌 **Вам тайное послание от {partner}:**\n\n*{partner_msg}*")
                         send_telegram_message(f"💌 <b>Тайное послание прочитано!</b> {current_user} увидел(а) твою записку.")
@@ -190,7 +217,6 @@ with tab1:
     st.subheader("📖 Наша история")
     if records:
         df_hist = pd.DataFrame(records).iloc[::-1]
-        # Прячем колонки с посланиями из общей таблицы, чтобы сохранить интригу
         if 'Послание Лисички' in df_hist.columns: df_hist = df_hist.drop(columns=['Послание Лисички'])
         if 'Послание Мишки' in df_hist.columns: df_hist = df_hist.drop(columns=['Послание Мишки'])
         st.dataframe(df_hist, use_container_width=True)
@@ -206,10 +232,9 @@ with tab2:
             ritual_counts = df_joint['Ритуал'].value_counts().reset_index()
             ritual_counts.columns = ['Ритуал', 'Дней']
             
-            # ИСПРАВЛЕННЫЙ ГРАФИК (Снизу вверх, только целые числа)
             bar_chart = alt.Chart(ritual_counts).mark_bar(color='#9370DB', cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
-                x=alt.X('Ритуал:N', title='', sort='-y', axis=alt.Axis(labelAngle=0)), # Горизонтальный текст снизу
-                y=alt.Y('Дней:Q', title='Дней выполнено', axis=alt.Axis(tickMinStep=1, format='d')), # Только целые числа
+                x=alt.X('Ритуал:N', title='', sort='-y', axis=alt.Axis(labelAngle=0)), 
+                y=alt.Y('Дней:Q', title='Дней выполнено', axis=alt.Axis(tickMinStep=1, format='d')), 
                 tooltip=['Ритуал', 'Дней']
             ).properties(height=350)
             st.altair_chart(bar_chart, use_container_width=True)
@@ -218,7 +243,6 @@ with tab2:
             st.subheader("🔥 Тепловая карта")
             heatmap_data = df_joint.groupby('Дата').size().reset_index(name='Количество')
             
-            # ИСПРАВЛЕННАЯ ТЕПЛОВАЯ КАРТА (безопасные углы)
             heat_chart = alt.Chart(heatmap_data).mark_rect(cornerRadius=3).encode(
                 x=alt.X('date(Дата):O', title='День'),
                 y=alt.Y('month(Дата):N', title='Месяц'),
