@@ -5,11 +5,10 @@ import json
 from datetime import datetime
 import pandas as pd
 
-# Настройка страницы
+# 1. Настройка страницы
 st.set_page_config(page_title="Наши Ритуалы", page_icon="✨", layout="centered")
 
-# --- 1. СТРОГИЙ ЧБ ДИЗАЙН И ФИКС СБРОСА ЦВЕТА ---
-# Запоминаем выбор темы в адресной строке, чтобы не слетало при обновлении
+# --- 2. СТРОГИЙ ЧБ ДИЗАЙН И ФИКС ЦВЕТОВ ---
 if "theme" not in st.query_params:
     st.query_params["theme"] = "dark" 
 
@@ -23,33 +22,62 @@ theme_choice = st.sidebar.radio(
 # Инверсия цветов
 if theme_choice == "Темная тема 🌙":
     st.query_params["theme"] = "dark"
-    bg_color = "#000000"       # Строгий черный фон
-    text_color = "#ffffff"     # Белый текст
-    input_bg = "#1a1a1a"       # Чуть серый для полей ввода, чтобы их было видно
+    bg_color = "#000000"
+    text_color = "#ffffff"
+    input_bg = "#111111"
 else:
     st.query_params["theme"] = "light"
-    bg_color = "#ffffff"       # Строгий белый фон
-    text_color = "#000000"     # Черный текст
-    input_bg = "#f0f0f0"       # Светло-серый для полей
+    bg_color = "#ffffff"
+    text_color = "#000000"
+    input_bg = "#f9f9f9"
 
-# Применяем стили (CSS)
+# Глубокий CSS для переопределения всех элементов Streamlit
 st.markdown(f"""
     <style>
-    .stApp {{ background-color: {bg_color} !important; }}
-    h1, h2, h3, p, label, div {{ color: {text_color} !important; font-family: 'Arial', sans-serif; }}
-    /* Настраиваем контраст полей ввода и таблиц */
-    .stTextInput>div>div>input, .stSelectbox>div>div>div {{ 
-        background-color: {input_bg} !important; 
-        color: {text_color} !important; 
+    /* Основной фон */
+    .stApp, .stApp > header {{ background-color: {bg_color} !important; }}
+    h1, h2, h3, p, label, span {{ color: {text_color} !important; font-family: 'Arial', sans-serif; }}
+    
+    /* Поля ввода */
+    .stTextInput input, .stSelectbox div[data-baseweb="select"] {{
+        background-color: {input_bg} !important;
+        color: {text_color} !important;
         border: 1px solid {text_color} !important;
     }}
-    [data-testid="stDataFrame"] {{ background-color: {input_bg} !important; }}
-    hr {{ border-color: {text_color} !important; opacity: 0.3; }}
+    
+    /* Выпадающее меню (которое выпадает поверх всего) */
+    div[data-baseweb="popover"] > div, ul[role="listbox"] {{
+        background-color: {input_bg} !important;
+    }}
+    li[role="option"] {{
+        background-color: {input_bg} !important;
+        color: {text_color} !important;
+    }}
+    li[role="option"]:hover {{
+        background-color: {text_color} !important;
+        color: {bg_color} !important;
+    }}
+    
+    /* Кнопка */
+    div[data-testid="stFormSubmitButton"] button {{
+        background-color: {text_color} !important;
+        border: 2px solid {text_color} !important;
+    }}
+    div[data-testid="stFormSubmitButton"] button p {{
+        color: {bg_color} !important;
+        font-weight: bold !important;
+    }}
+    div[data-testid="stFormSubmitButton"] button:hover {{
+        opacity: 0.8;
+    }}
+    
+    /* Цвет иконок (стрелочки меню) */
+    svg {{ fill: {text_color} !important; }}
     </style>
 """, unsafe_allow_html=True)
 
 
-# --- 2. ПРОФИЛИ (ЗАПОМИНАЮТСЯ) ---
+# --- 3. ПРОФИЛИ ---
 if "user" not in st.query_params:
     st.title("Привет! Кто ты? 👋")
     col1, col2 = st.columns(2)
@@ -71,7 +99,7 @@ if st.sidebar.button("Сменить профиль"):
     st.rerun()
 
 
-# --- 3. ПОДКЛЮЧЕНИЕ К БАЗЕ ---
+# --- 4. ПОДКЛЮЧЕНИЕ К БАЗЕ ---
 @st.cache_resource
 def init_connection():
     key_dict = json.loads(st.secrets["json_key"])
@@ -82,54 +110,52 @@ def init_connection():
 try:
     client = init_connection()
     sheet = client.open("Наши ритуалы").sheet1 
-    records = sheet.get_all_records() # Читаем историю
+    records = sheet.get_all_records()
 except Exception as e:
     st.error(f"Ошибка базы данных: {e}")
     st.stop()
 
+
+# --- 5. УМНОЕ ДОБАВЛЕНИЕ НОВЫХ РИТУАЛОВ ---
+base_rituals = ["🧘‍♀️ Медитация", "⚡️ Зарядка", "📖 Чтение", "🎤 Пение", "💬 Разговор по душам", "🌲 Прогулка", "🧘‍♂️ Совместная йога"]
+
+history_rituals = [str(row['Ритуал']) for row in records if row.get('Ритуал')]
+all_rituals = list(set(base_rituals + history_rituals))
+all_rituals.sort()
+
 st.title("✨ Наши Ритуалы")
 st.divider()
 
-
-# --- 4. УМНОЕ ДОБАВЛЕНИЕ НОВЫХ РИТУАЛОВ ---
-# Базовые ритуалы (добавил медитацию, чтение и зарядку по вашей просьбе)
-base_rituals = ["🧘‍♀️ Медитация", "⚡️ Зарядка", "📖 Чтение", "🎤 Пение", "💬 Разговор по душам", "🌲 Прогулка", "🧘‍♂️ Совместная йога"]
-
-# Сканируем базу: ищем все новые ритуалы, которые вы когда-либо вписывали
-history_rituals = []
-for row in records:
-    if row.get('Ритуал'):
-        history_rituals.append(str(row['Ритуал']))
-
-# Объединяем списки и удаляем дубликаты
-all_rituals = list(set(base_rituals + history_rituals))
-all_rituals.sort() # Выстраиваем по алфавиту
-
-
-# --- 5. ФОРМА СОХРАНЕНИЯ ---
+# --- 6. ФОРМА СОХРАНЕНИЯ ---
 st.subheader("📝 Отметить выполнение")
 with st.form("habit_form"):
     today = datetime.now().strftime("%Y-%m-%d")
     date_input = st.text_input("Дата", value=today)
     
     st.write("Что выполнили?")
-    # Выпадающий список из всех известных ритуалов
     selected_ritual = st.selectbox("Выберите из списка:", all_rituals)
-    
-    # Поле для создания нового!
-    custom_ritual = st.text_input("ИЛИ впишите новый ритуал (он сохранится в список навсегда):", placeholder="Например: 🎮 Совместные игры")
+    custom_ritual = st.text_input("ИЛИ впишите новый (он сохранится в список навсегда):", placeholder="Например: Совместные игры 🎮")
     
     submitted = st.form_submit_button("Я выполнил(а)! Сохранить ✨")
     
     if submitted:
-        # Если вписали свой текст - берем его, если нет - берем из выпадающего списка
-        final_ritual = custom_ritual.strip() if custom_ritual.strip() else selected_ritual
-        
+        # УМНЫЙ АЛГОРИТМ ПЕРЕНОСА СМАЙЛИКА
+        raw_ritual = custom_ritual.strip()
+        if raw_ritual:
+            parts = raw_ritual.split()
+            # Если частей больше одной и последняя часть - это эмодзи/символ (код символа > 10000)
+            if len(parts) > 1 and ord(parts[-1][0]) > 10000:
+                emoji = parts.pop()
+                final_ritual = f"{emoji} {' '.join(parts)}"
+            else:
+                final_ritual = raw_ritual
+        else:
+            final_ritual = selected_ritual
+            
         match_idx = None
         existing_fox = "❌"
         existing_bear = "❌"
         
-        # Умная проверка: отмечал ли партнер это сегодня?
         for i, row in enumerate(records):
             if str(row.get('Дата', '')) == date_input and str(row.get('Ритуал', '')) == final_ritual:
                 match_idx = i + 2 
@@ -138,7 +164,6 @@ with st.form("habit_form"):
                 break
         
         if match_idx:
-            # Обновляем существующую запись
             new_fox = "✅" if current_user == "Лисичка 🦊" else existing_fox
             new_bear = "✅" if current_user == "Мишка 🐻" else existing_bear
             new_together = "✅" if (new_fox == "✅" and new_bear == "✅") else "❌"
@@ -153,17 +178,16 @@ with st.form("habit_form"):
             else:
                 st.success("Отлично! Галочка поставлена. Ждем партнера ✨")
         else:
-            # Создаем новую запись на сегодня
             new_fox = "✅" if current_user == "Лисичка 🦊" else "❌"
             new_bear = "✅" if current_user == "Мишка 🐻" else "❌"
             
             sheet.append_row([date_input, final_ritual, new_fox, new_bear, "❌"])
-            st.success(f"Записано в историю! Если это новый ритуал, он теперь будет в списке всегда. Ждем партнера ✨")
+            st.success(f"Записано в историю! Ждем партнера ✨")
 
 st.divider()
 st.subheader("📖 Наша история")
 if records:
-    df = pd.DataFrame(records).iloc[::-1] # Переворачиваем, чтобы свежие были сверху
+    df = pd.DataFrame(records).iloc[::-1]
     st.dataframe(df, use_container_width=True)
 else:
     st.info("Пока нет записей.")
