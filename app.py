@@ -247,7 +247,7 @@ with tab2:
             # Данные для тепловой карты
             heatmap_data = df_joint.groupby('Дата').size().reset_index(name='Количество')
             
-            heat_chart = alt.Chart(heatmap_data).mark_rect(rx=3, ry=3, stroke=bg_color, strokeWidth=2).encode(
+            heat_chart = alt.Chart(heatmap_data).mark_rect(cornerRadius=3).encode(
                 x=alt.X('date(Дата):O', title='День месяца'),
                 y=alt.Y('month(Дата):N', title='Месяц'),
                 color=alt.Color('Количество:Q', scale=alt.Scale(scheme='purples'), legend=None),
