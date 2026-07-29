@@ -45,6 +45,12 @@ st.markdown(f"""
         border: 1px solid {text_color} !important;
     }}
     
+    /* ИСПРАВЛЕНИЕ: Цвет текста-подсказки (placeholder) */
+    .stTextInput input::placeholder {{
+        color: {text_color} !important;
+        opacity: 0.5 !important;
+    }}
+    
     /* Выпадающее меню (которое выпадает поверх всего) */
     div[data-baseweb="popover"] > div, ul[role="listbox"] {{
         background-color: {input_bg} !important;
@@ -143,7 +149,6 @@ with st.form("habit_form"):
         raw_ritual = custom_ritual.strip()
         if raw_ritual:
             parts = raw_ritual.split()
-            # Если частей больше одной и последняя часть - это эмодзи/символ (код символа > 10000)
             if len(parts) > 1 and ord(parts[-1][0]) > 10000:
                 emoji = parts.pop()
                 final_ritual = f"{emoji} {' '.join(parts)}"
