@@ -7,8 +7,9 @@ import pandas as pd
 import requests
 import altair as alt
 import os
+import time
 
-# --- СОЗДАНИЕ ПАПКИ ДЛЯ ФОТО НА ВАШЕМ СЕРВЕРЕ ---
+# --- СОЗДАНИЕ ПАПКИ ДЛЯ ФОТО НА СЕРВЕРЕ ---
 if not os.path.exists("capsule_photos"):
     os.makedirs("capsule_photos")
 
@@ -52,15 +53,10 @@ def get_streaks(records):
                     else: break
     return r_streak, s_streak
 
-# --- НАСТРОЙКИ UI ---
+# --- НАСТРОЙКИ UI (ТОЛЬКО ТЕМНАЯ ТЕМА) ---
 st.set_page_config(page_title="Наши Ритуалы", page_icon="✨", layout="centered")
 
-if "theme" not in st.query_params: st.query_params["theme"] = "dark" 
-st.sidebar.title("⚙️ Настройки")
-theme_choice = st.sidebar.radio("Оформление:", ["Темная тема 🌙", "Светлая тема ☀️"], index=0 if st.query_params["theme"] == "dark" else 1)
-
-bg_color, text_color, input_bg = ("#000000", "#ffffff", "#111111") if theme_choice == "Темная тема 🌙" else ("#ffffff", "#000000", "#f9f9f9")
-st.query_params["theme"] = "dark" if theme_choice == "Темная тема 🌙" else "light"
+bg_color, text_color, input_bg = "#000000", "#ffffff", "#111111"
 
 st.markdown(f"""
     <style>
@@ -80,7 +76,7 @@ st.markdown(f"""
     [data-testid="stDataFrame"] {{ background-color: {input_bg} !important; border-radius: 8px; }}
     
     @keyframes breathe {{ 0% {{ transform: scale(1); }} 50% {{ transform: scale(1.03); }} 100% {{ transform: scale(1); }} }}
-    [data-testid="stImage"] img {{ animation: breathe 4s ease-in-out infinite; border-radius: 15px; box-shadow: 0px 4px 12px rgba(0,0,0,0.2); }}
+    [data-testid="stImage"] img {{ animation: breathe 4s ease-in-out infinite; border-radius: 15px; box-shadow: 0px 4px 12px rgba(0,0,0,0.4); }}
     </style>
 """, unsafe_allow_html=True)
 
@@ -96,6 +92,7 @@ current_user = "Лисичка 🦊" if st.query_params["user"] == "fox" else "�
 partner = "Мишка 🐻" if st.query_params["user"] == "fox" else "Лисичка 🦊"
 sys_rituals = ['Ежедневный Дневник 🌸', 'Ежедневное Послание 💌', '📸 Фото на память']
 
+st.sidebar.title("⚙️ Настройки")
 st.sidebar.write(f"Профиль: **{current_user}**")
 if st.sidebar.button("Сменить профиль"): st.query_params.pop("user", None); st.rerun()
 
@@ -167,8 +164,11 @@ with tab1:
                         sheet.append_row([today_str, "Ежедневное Послание 💌", "❌", "❌", "❌", f_msg, b_msg, "", "", "", "", ""])
                     
                     send_telegram_message(f"💌 <b>{current_user}</b> оставил(а) тебе послание дня! Зайди почитать.")
-                    st.success("Послание успешно сохранено!")
+                    st.success("✅ Послание успешно сохранено!")
+                    time.sleep(1.5) # Пауза, чтобы увидеть уведомление
                     st.rerun()
+                else:
+                    st.warning("Текст послания не изменился.")
     else:
         st.info("🔒 Выполните хотя бы один ритуал ниже, чтобы увидеть послание партнера и оставить своё!")
 
@@ -206,10 +206,12 @@ with tab1:
                 sheet.update_cell(match_idx, 5, new_together)
                 
                 if new_together == "✅":
-                    st.balloons()
                     st.success(f"Ого! Галочка ВМЕСТЕ получена! 🎉")
+                    st.balloons()
+                    time.sleep(1.5)
                 else:
                     st.success("Отлично! Данные обновлены. Ждем партнера ✨")
+                    time.sleep(1.5)
             else:
                 new_fox = "✅" if current_user == "Лисичка 🦊" else "❌"
                 new_bear = "✅" if current_user == "Мишка 🐻" else "❌"
@@ -217,6 +219,7 @@ with tab1:
                 sheet.append_row([date_input, final_ritual, new_fox, new_bear, "❌", "", "", "", "", "", "", ""])
                 st.success(f"Записано! Ждем партнера ✨")
                 send_telegram_message(f"<b>{current_user}</b> только что выполнил(а):\n👉 <b>{final_ritual}</b>\n\n{partner}, твоя очередь! ✨")
+                time.sleep(1.5)
             st.rerun()
 
 # ----------------- ВКЛАДКА 2: ДНЕВНИК -----------------
@@ -233,7 +236,6 @@ with tab2:
     with col_m2: st.metric("🌸 Серия", f"{s_streak} дн.")
     st.divider()
 
-    # ОГРАНИЧЕНИЕ КАЛЕНДАРЯ: Нельзя выбрать будущие дни!
     diary_date_obj = st.date_input("Выберите день для чтения или записи:", value=today_date_obj, max_value=today_date_obj)
     diary_date_str = diary_date_obj.strftime("%Y-%m-%d")
     is_today = (diary_date_obj == today_date_obj)
@@ -254,14 +256,12 @@ with tab2:
             partner_diary_text = str(row.get(d_p_col, ''))
             break
 
-    # ИНДИКАТОР СТАТУСА ДНЯ
     if partner_diary_text and my_diary_text:
         st.markdown(f"📌 **Статус за {diary_date_str}:** 🟢 *Заполнен обоими!*")
     elif partner_diary_text or my_diary_text:
         st.markdown(f"📌 **Статус за {diary_date_str}:** 🟡 *Заполнен частично*")
     else:
         st.markdown(f"📌 **Статус за {diary_date_str}:** ⚪️ *Еще не заполнен*")
-
     st.divider()
 
     if not is_today:
@@ -306,7 +306,9 @@ with tab2:
                         new_row = [today_str, "Ежедневный Дневник 🌸", "❌", "❌", "❌", "", ""]
                         add_cols = [mood_emoji, diary_text.strip(), "", "", ""] if current_user == "Лисичка 🦊" else ["", "", mood_emoji, diary_text.strip(), ""]
                         sheet.append_row(new_row + add_cols)
-                    st.success("Дневник сохранен!")
+                    
+                    st.success("✅ Дневник успешно сохранен!")
+                    time.sleep(1.5)
                     st.rerun()
 
 # ----------------- ВКЛАДКА 3: КАПСУЛА -----------------
@@ -332,8 +334,10 @@ with tab3:
                         break
                 if match_idx: sheet.update_cell(match_idx, 12, local_filepath)
                 else: sheet.append_row([today_str, "📸 Фото на память", "✅", "✅", "✅", "", "", "", "", "", "", local_filepath])
-                st.success("Фотография успешно сохранена на вашем сервере!")
+                
+                st.success("✅ Фотография успешно сохранена на вашем сервере!")
                 st.balloons()
+                time.sleep(2)
                 st.rerun()
 
     st.divider()
