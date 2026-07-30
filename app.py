@@ -6,7 +6,11 @@ from datetime import datetime, timedelta
 import pandas as pd
 import requests
 import altair as alt
-import base64
+import os
+
+# --- СОЗДАНИЕ ПАПКИ ДЛЯ ФОТО НА ВАШЕМ СЕРВЕРЕ ---
+if not os.path.exists("capsule_photos"):
+    os.makedirs("capsule_photos")
 
 # --- ФУНКЦИИ ---
 def send_telegram_message(text):
@@ -17,25 +21,14 @@ def send_telegram_message(text):
     except Exception:
         pass 
 
-def upload_to_imgbb(file_bytes):
-    try:
-        key = st.secrets["imgbb_key"]
-        url = "https://api.imgbb.com/1/upload"
-        payload = {"key": key, "image": base64.b64encode(file_bytes).decode('utf-8')}
-        res = requests.post(url, data=payload)
-        if res.status_code == 200:
-            return res.json()['data']['url'], None
-        return None, res.text
-    except Exception as e:
-        return None, str(e)
-
 def get_streaks(records):
     if not records: return 0, 0
     df = pd.DataFrame(records)
     r_streak, s_streak = 0, 0
+    sys_rituals = ['Ежедневный Дневник 🌸', 'Ежедневное Послание 💌', '📸 Фото на память']
     
     if 'Вместе ✨' in df.columns:
-        df_rituals = df[(df['Вместе ✨'] == '✅') & (df['Ритуал'] != 'Ежедневный Дневник 🌸')]
+        df_rituals = df[(df['Вместе ✨'] == '✅') & (~df['Ритуал'].isin(sys_rituals))]
         if not df_rituals.empty:
             df_rituals['Дата'] = pd.to_datetime(df_rituals['Дата']).dt.date
             dates = sorted(df_rituals['Дата'].unique(), reverse=True)
@@ -101,6 +94,7 @@ if "user" not in st.query_params:
 
 current_user = "Лисичка 🦊" if st.query_params["user"] == "fox" else "Мишка 🐻"
 partner = "Мишка 🐻" if st.query_params["user"] == "fox" else "Лисичка 🦊"
+sys_rituals = ['Ежедневный Дневник 🌸', 'Ежедневное Послание 💌', '📸 Фото на память']
 
 st.sidebar.write(f"Профиль: **{current_user}**")
 if st.sidebar.button("Сменить профиль"): st.query_params.pop("user", None); st.rerun()
@@ -128,7 +122,9 @@ tab1, tab2, tab3, tab4 = st.tabs(["📝 Ритуалы", "🌸 Дневник", 
 
 # ----------------- ВКЛАДКА 1: РИТУАЛЫ -----------------
 with tab1:
-    pet_happy = any(str(r.get('Дата')) == today_str and str(r.get('Вместе ✨')) == '✅' and str(r.get('Ритуал')) != 'Ежедневный Дневник 🌸' for r in records)
+    has_done_ritual_today = any(str(r.get('Дата')) == today_str and str(r.get('Ритуал')) not in sys_rituals and str(r.get(current_user)) == '✅' for r in records)
+    pet_happy = any(str(r.get('Дата')) == today_str and str(r.get('Вместе ✨')) == '✅' and str(r.get('Ритуал')) not in sys_rituals for r in records)
+    
     pet_stage = 2 if r_streak >= 14 else 1
     pet_mood = "happy" if pet_happy else "sad"
     
@@ -140,40 +136,65 @@ with tab1:
     with col_m: st.metric("🔥 Серия", f"{r_streak} дн.")
     st.divider()
 
+    # --- ЛОГИКА ЕЖЕДНЕВНОГО ПОСЛАНИЯ ---
+    msg_match_idx, my_msg_today, partner_msg_today = None, "", ""
+    for i, row in enumerate(records):
+        if str(row.get('Дата')) == today_str and str(row.get('Ритуал')) == 'Ежедневное Послание 💌':
+            msg_match_idx = i + 2
+            my_col = 'Послание Лисички' if current_user == "Лисичка 🦊" else 'Послание Мишки'
+            p_col = 'Послание Мишки' if current_user == "Лисичка 🦊" else 'Послание Лисички'
+            my_msg_today = str(row.get(my_col, '')).strip()
+            partner_msg_today = str(row.get(p_col, '')).strip()
+            break
+
+    if has_done_ritual_today:
+        st.subheader("💌 Послание дня (1 раз в день)")
+        if partner_msg_today:
+            st.info(f"**От {partner}:**\n\n*{partner_msg_today}*")
+        else:
+            st.write(f"*{partner} пока не оставил(а) послание на сегодня.*")
+        
+        with st.form("daily_message_form"):
+            new_msg = st.text_area("Ваше послание партнеру:", value=my_msg_today, placeholder="Теплые слова на сегодня...")
+            if st.form_submit_button("Сохранить послание 💌"):
+                if new_msg.strip() != my_msg_today:
+                    if msg_match_idx:
+                        col_idx = 6 if current_user == "Лисичка 🦊" else 7
+                        sheet.update_cell(msg_match_idx, col_idx, new_msg.strip())
+                    else:
+                        f_msg = new_msg.strip() if current_user == "Лисичка 🦊" else ""
+                        b_msg = new_msg.strip() if current_user == "Мишка 🐻" else ""
+                        sheet.append_row([today_str, "Ежедневное Послание 💌", "❌", "❌", "❌", f_msg, b_msg, "", "", "", "", ""])
+                    
+                    send_telegram_message(f"💌 <b>{current_user}</b> оставил(а) тебе послание дня! Зайди почитать.")
+                    st.success("Послание успешно сохранено!")
+                    st.rerun()
+    else:
+        st.info("🔒 Выполните хотя бы один ритуал ниже, чтобы увидеть послание партнера и оставить своё!")
+
+    st.divider()
+
+    # --- ОТМЕТКА РИТУАЛОВ ---
     base_rituals = ["🧘‍♀️ Медитация", "⚡️ Зарядка", "📖 Чтение", "🎤 Пение", "💬 Разговор по душам", "🌲 Прогулка", "🧘‍♂️ Совместная йога", "🎮 Совместные игры"]
-    history_rituals = [str(r['Ритуал']) for r in records if r.get('Ритуал') and r.get('Ритуал') != 'Ежедневный Дневник 🌸' and r.get('Ритуал') != '📸 Фото на память']
+    history_rituals = [str(r['Ритуал']) for r in records if r.get('Ритуал') and str(r.get('Ритуал')) not in sys_rituals]
     all_rituals = sorted(list(set(base_rituals + history_rituals)))
 
+    st.subheader("📝 Отметить ритуал")
     with st.form("habit_form"):
         date_input = st.text_input("Дата", value=today_str)
         selected_ritual = st.selectbox("Что выполнили?", all_rituals)
         custom_ritual = st.text_input("ИЛИ новый ритуал:")
         
-        current_final_ritual = custom_ritual.strip() if custom_ritual.strip() else selected_ritual
-        existing_my_msg, partner_msg, match_idx = "", "", None
-        existing_fox, existing_bear = "❌", "❌"
-        
-        for i, row in enumerate(records):
-            if str(row.get('Дата')) == date_input and str(row.get('Ритуал')) == current_final_ritual:
-                match_idx = i + 2
-                existing_fox = row.get('Лисичка 🦊', '❌')
-                existing_bear = row.get('Мишка 🐻', '❌')
-                my_col = 'Послание Лисички' if current_user == "Лисичка 🦊" else 'Послание Мишки'
-                p_col = 'Послание Мишки' if current_user == "Лисичка 🦊" else 'Послание Лисички'
-                existing_my_msg = str(row.get(my_col, '')).strip()
-                partner_msg = str(row.get(p_col, '')).strip()
-                break
-
-        if partner_msg:
-            st.info(f"💌 **Послание от {partner}:**\n\n*{partner_msg}*")
-
-        secret_message = st.text_area("💌 Твое послание / Ответ за день (1 раз в день):", value=existing_my_msg, placeholder="Напишите пару теплых слов...")
-        
         if st.form_submit_button("Я выполнил(а)! Сохранить ✨"):
-            final_ritual = current_final_ritual
+            final_ritual = custom_ritual.strip() if custom_ritual.strip() else selected_ritual
+            match_idx, existing_fox, existing_bear = None, "❌", "❌"
             
-            if secret_message.strip() and secret_message.strip() != existing_my_msg:
-                send_telegram_message(f"💌 <b>{current_user}</b> оставил(а) тебе послание за <b>{final_ritual}</b>! Отметь ритуал, чтобы прочитать.")
+            for i, row in enumerate(records):
+                if str(row.get('Дата')) == date_input and str(row.get('Ритуал')) == final_ritual:
+                    match_idx = i + 2
+                    existing_fox = row.get('Лисичка 🦊', '❌')
+                    existing_bear = row.get('Мишка 🐻', '❌')
+                    break
 
             if match_idx:
                 new_fox = "✅" if current_user == "Лисичка 🦊" else existing_fox
@@ -183,8 +204,6 @@ with tab1:
                 sheet.update_cell(match_idx, 3, new_fox)
                 sheet.update_cell(match_idx, 4, new_bear)
                 sheet.update_cell(match_idx, 5, new_together)
-                my_col_idx = 6 if current_user == "Лисичка 🦊" else 7
-                sheet.update_cell(match_idx, my_col_idx, secret_message.strip())
                 
                 if new_together == "✅":
                     st.balloons()
@@ -194,13 +213,11 @@ with tab1:
             else:
                 new_fox = "✅" if current_user == "Лисичка 🦊" else "❌"
                 new_bear = "✅" if current_user == "Мишка 🐻" else "❌"
-                f_msg = secret_message.strip() if current_user == "Лисичка 🦊" else ""
-                b_msg = secret_message.strip() if current_user == "Мишка 🐻" else ""
                 
-                new_row = [date_input, final_ritual, new_fox, new_bear, "❌", f_msg, b_msg, "", "", "", "", ""]
-                sheet.append_row(new_row)
+                sheet.append_row([date_input, final_ritual, new_fox, new_bear, "❌", "", "", "", "", "", "", ""])
                 st.success(f"Записано! Ждем партнера ✨")
                 send_telegram_message(f"<b>{current_user}</b> только что выполнил(а):\n👉 <b>{final_ritual}</b>\n\n{partner}, твоя очередь! ✨")
+            st.rerun()
 
 # ----------------- ВКЛАДКА 2: ДНЕВНИК -----------------
 with tab2:
@@ -247,7 +264,6 @@ with tab2:
 
     st.divider()
 
-    # ЕСЛИ ВЫБРАН ПРОШЛЫЙ ДЕНЬ — РЕЖИМ ТОЛЬКО ЧТЕНИЯ (без формы)
     if not is_today:
         st.info("📜 **Архивная запись (Только чтение)**: Прошлые дни нельзя редактировать.")
         if partner_diary_text:
@@ -260,8 +276,6 @@ with tab2:
             st.markdown(f"**Ваша запись ({my_mood_emoji}):**\n\n*{my_diary_text}*")
         else:
             st.write("*Вы не заполняли дневник в этот день.*")
-
-    # ЕСЛИ ВЫБРАН СЕГОДНЯШНИЙ ДЕНЬ — РЕЖИМ РЕДАКТИРОВАНИЯ
     else:
         if partner_diary_text and my_diary_text:
             st.info(f"**Запись {partner} ({partner_mood_emoji}):**\n\n*{partner_diary_text}*")
@@ -283,53 +297,56 @@ with tab2:
                     st.warning("Напишите хотя бы пару слов!")
                 else:
                     my_m_idx, my_d_idx = (8, 9) if current_user == "Лисичка 🦊" else (10, 11)
+                    if not my_diary_text: send_telegram_message(f"🌸 <b>{current_user}</b> заполнил(а) дневник за сегодня! Зайди почитать.")
                     
-                    if not my_diary_text:
-                        send_telegram_message(f"🌸 <b>{current_user}</b> заполнил(а) дневник за сегодня! Зайди почитать.")
-
                     if match_diary_idx:
                         sheet.update_cell(match_diary_idx, my_m_idx, mood_emoji)
                         sheet.update_cell(match_diary_idx, my_d_idx, diary_text.strip())
-                        st.success("Дневник обновлен!")
-                        st.rerun() 
                     else:
                         new_row = [today_str, "Ежедневный Дневник 🌸", "❌", "❌", "❌", "", ""]
                         add_cols = [mood_emoji, diary_text.strip(), "", "", ""] if current_user == "Лисичка 🦊" else ["", "", mood_emoji, diary_text.strip(), ""]
                         sheet.append_row(new_row + add_cols)
-                        st.success("Дневник сохранен!")
-                        st.rerun()
+                    st.success("Дневник сохранен!")
+                    st.rerun()
 
 # ----------------- ВКЛАДКА 3: КАПСУЛА -----------------
 with tab3:
     st.title("📸 Капсула времени")
-    st.write("Загружайте сюда лучшие моменты. Они будут храниться вечно!")
+    st.write("Фотографии сохраняются прямо на вашем личном сервере (VPS)!")
     
     uploaded_file = st.file_uploader("Добавить фото к сегодняшнему дню", type=["jpg", "jpeg", "png"])
     if uploaded_file is not None:
-        if st.button("💾 Сохранить"):
-            with st.spinner("Загружаем фото..."):
-                file_url, err = upload_to_imgbb(uploaded_file.getvalue())
-                if file_url:
-                    match_idx = None
-                    for i, row in enumerate(records):
-                        if str(row.get('Дата')) == today_str and str(row.get('Ритуал')) != 'Ежедневный Дневник 🌸' and str(row.get('Ритуал')) != '📸 Фото на память':
-                            match_idx = i + 2
-                            break
-                    if match_idx: sheet.update_cell(match_idx, 12, file_url)
-                    else: sheet.append_row([today_str, "📸 Фото на память", "✅", "✅", "✅", "", "", "", "", "", "", file_url])
-                    st.success("Фотография успешно сохранена!")
-                    st.balloons()
-                else:
-                    st.error(f"Ошибка загрузки: {err}")
+        if st.button("💾 Сохранить надежно"):
+            with st.spinner("Сохраняем на сервере..."):
+                file_ext = uploaded_file.name.split('.')[-1]
+                safe_filename = f"{today_str}_{datetime.now().strftime('%H%M%S')}.{file_ext}"
+                local_filepath = os.path.join("capsule_photos", safe_filename)
+                
+                with open(local_filepath, "wb") as f:
+                    f.write(uploaded_file.getbuffer())
+                
+                match_idx = None
+                for i, row in enumerate(records):
+                    if str(row.get('Дата')) == today_str and str(row.get('Ритуал')) not in sys_rituals:
+                        match_idx = i + 2
+                        break
+                if match_idx: sheet.update_cell(match_idx, 12, local_filepath)
+                else: sheet.append_row([today_str, "📸 Фото на память", "✅", "✅", "✅", "", "", "", "", "", "", local_filepath])
+                st.success("Фотография успешно сохранена на вашем сервере!")
+                st.balloons()
+                st.rerun()
 
     st.divider()
     has_photos = False
     for row in reversed(records):
         photo_url = str(row.get('Фото', ''))
-        if photo_url and photo_url.startswith("http"):
+        if photo_url:
             has_photos = True
             st.write(f"**{row.get('Дата', '')}** — {row.get('Ритуал', '')}")
-            st.image(photo_url, use_container_width=True)
+            try:
+                st.image(photo_url, use_container_width=True)
+            except Exception:
+                st.error("Фото не найдено на сервере.")
             st.markdown("<br>", unsafe_allow_html=True)
             
     if not has_photos: st.info("Ваша капсула пока пуста.")
@@ -341,7 +358,7 @@ with tab4:
         df_hist = pd.DataFrame(records).iloc[::-1]
         cols_to_show = ['Дата', 'Ритуал', 'Лисичка 🦊', 'Мишка 🐻', 'Вместе ✨']
         df_display = df_hist[[c for c in cols_to_show if c in df_hist.columns]]
-        df_display = df_display[(df_display['Ритуал'] != 'Ежедневный Дневник 🌸') & (df_display['Ритуал'] != '📸 Фото на память')]
+        df_display = df_display[~df_display['Ритуал'].isin(sys_rituals)]
         st.dataframe(df_display, use_container_width=True, hide_index=True)
     
     st.divider()
@@ -349,7 +366,7 @@ with tab4:
     if records:
         df_stats = pd.DataFrame(records)
         df_stats['Дата'] = pd.to_datetime(df_stats['Дата'])
-        df_joint = df_stats[(df_stats['Вместе ✨'] == '✅') & (df_stats['Ритуал'] != 'Ежедневный Дневник 🌸') & (df_stats['Ритуал'] != '📸 Фото на память')]
+        df_joint = df_stats[(df_stats['Вместе ✨'] == '✅') & (~df_stats['Ритуал'].isin(sys_rituals))]
         
         if not df_joint.empty:
             st.subheader("🏆 Любимые ритуалы")
