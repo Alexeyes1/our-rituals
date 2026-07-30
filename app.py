@@ -17,15 +17,11 @@ def send_telegram_message(text):
     except Exception:
         pass 
 
-# НОВАЯ ФУНКЦИЯ ЗАГРУЗКИ ФОТО ЧЕРЕЗ IMGBB (Без квот и проблем)
 def upload_to_imgbb(file_bytes):
     try:
         key = st.secrets["imgbb_key"]
         url = "https://api.imgbb.com/1/upload"
-        payload = {
-            "key": key,
-            "image": base64.b64encode(file_bytes).decode('utf-8')
-        }
+        payload = {"key": key, "image": base64.b64encode(file_bytes).decode('utf-8')}
         res = requests.post(url, data=payload)
         if res.status_code == 200:
             return res.json()['data']['url'], None
@@ -124,7 +120,8 @@ except Exception as e:
     st.stop()
 
 r_streak, s_streak = get_streaks(records)
-today_str = datetime.now().strftime("%Y-%m-%d")
+today_date_obj = datetime.now().date()
+today_str = today_date_obj.strftime("%Y-%m-%d")
 
 # ================= Вкладки =================
 tab1, tab2, tab3, tab4 = st.tabs(["📝 Ритуалы", "🌸 Дневник", "📸 Капсула", "📊 Стат."])
@@ -152,7 +149,6 @@ with tab1:
         selected_ritual = st.selectbox("Что выполнили?", all_rituals)
         custom_ritual = st.text_input("ИЛИ новый ритуал:")
         
-        # Получаем сообщения для текущего ритуала
         current_final_ritual = custom_ritual.strip() if custom_ritual.strip() else selected_ritual
         existing_my_msg, partner_msg, match_idx = "", "", None
         existing_fox, existing_bear = "❌", "❌"
@@ -168,11 +164,10 @@ with tab1:
                 partner_msg = str(row.get(p_col, '')).strip()
                 break
 
-        # Если есть сообщение от партнера, показываем его прямо над полем ввода
         if partner_msg:
             st.info(f"💌 **Послание от {partner}:**\n\n*{partner_msg}*")
 
-        secret_message = st.text_area("💌 Твое послание / Ответ (необязательно):", value=existing_my_msg, placeholder="Напишите пару теплых слов...")
+        secret_message = st.text_area("💌 Твое послание / Ответ за день (1 раз в день):", value=existing_my_msg, placeholder="Напишите пару теплых слов...")
         
         if st.form_submit_button("Я выполнил(а)! Сохранить ✨"):
             final_ritual = current_final_ritual
@@ -221,9 +216,10 @@ with tab2:
     with col_m2: st.metric("🌸 Серия", f"{s_streak} дн.")
     st.divider()
 
-    # КАЛЕНДАРЬ ДЛЯ ДНЕВНИКА
-    diary_date_obj = st.date_input("Выберите день для записи или чтения:", value=datetime.now().date())
+    # ОГРАНИЧЕНИЕ КАЛЕНДАРЯ: Нельзя выбрать будущие дни!
+    diary_date_obj = st.date_input("Выберите день для чтения или записи:", value=today_date_obj, max_value=today_date_obj)
     diary_date_str = diary_date_obj.strftime("%Y-%m-%d")
+    is_today = (diary_date_obj == today_date_obj)
 
     match_diary_idx, my_diary_text, my_mood_emoji = None, "", "😁 Отличное"
     partner_diary_text, partner_mood_emoji = "", ""
@@ -241,42 +237,67 @@ with tab2:
             partner_diary_text = str(row.get(d_p_col, ''))
             break
 
-    # Красивое отображение раздельного дневника
+    # ИНДИКАТОР СТАТУСА ДНЯ
     if partner_diary_text and my_diary_text:
-        st.info(f"**{partner} ({partner_mood_emoji}):**\n\n*{partner_diary_text}*")
+        st.markdown(f"📌 **Статус за {diary_date_str}:** 🟢 *Заполнен обоими!*")
+    elif partner_diary_text or my_diary_text:
+        st.markdown(f"📌 **Статус за {diary_date_str}:** 🟡 *Заполнен частично*")
+    else:
+        st.markdown(f"📌 **Статус за {diary_date_str}:** ⚪️ *Еще не заполнен*")
+
+    st.divider()
+
+    # ЕСЛИ ВЫБРАН ПРОШЛЫЙ ДЕНЬ — РЕЖИМ ТОЛЬКО ЧТЕНИЯ (без формы)
+    if not is_today:
+        st.info("📜 **Архивная запись (Только чтение)**: Прошлые дни нельзя редактировать.")
+        if partner_diary_text:
+            st.markdown(f"**Запись {partner} ({partner_mood_emoji}):**\n\n*{partner_diary_text}*")
+        else:
+            st.write(f"*{partner} не заполнял(а) дневник в этот день.*")
+            
         st.divider()
-        st.success(f"**Ваша запись ({my_mood_emoji}):**\n\n*{my_diary_text}*")
-    elif partner_diary_text and not my_diary_text:
-        st.warning(f"🤫 {partner} уже заполнил(а) дневник за {diary_date_str}! Напишите свою запись, чтобы увидеть её.")
+        if my_diary_text:
+            st.markdown(f"**Ваша запись ({my_mood_emoji}):**\n\n*{my_diary_text}*")
+        else:
+            st.write("*Вы не заполняли дневник в этот день.*")
 
-    st.write(f"Редактировать запись за {diary_date_str}:")
-    with st.form("diary_form"):
-        mood_opts = ["😁 Отличное", "😌 Спокойное", "😐 Нормальное", "😔 Грустное", "😡 Злое"]
-        idx_mood = mood_opts.index(my_mood_emoji) if my_mood_emoji in mood_opts else 0
-        
-        mood_emoji = st.selectbox("Ваше настроение:", mood_opts, index=idx_mood)
-        diary_text = st.text_area("Что интересного случилось в этот день?", value=my_diary_text, height=100)
-        
-        if st.form_submit_button("🌸 Сохранить запись"):
-            if not diary_text.strip():
-                st.warning("Напишите хотя бы пару слов!")
-            else:
-                my_m_idx, my_d_idx = (8, 9) if current_user == "Лисичка 🦊" else (10, 11)
-                
-                if not my_diary_text:
-                    send_telegram_message(f"🌸 <b>{current_user}</b> заполнил(а) дневник за {diary_date_str}! Зайди почитать.")
+    # ЕСЛИ ВЫБРАН СЕГОДНЯШНИЙ ДЕНЬ — РЕЖИМ РЕДАКТИРОВАНИЯ
+    else:
+        if partner_diary_text and my_diary_text:
+            st.info(f"**Запись {partner} ({partner_mood_emoji}):**\n\n*{partner_diary_text}*")
+            st.divider()
+            st.success(f"**Ваша запись за сегодня ({my_mood_emoji}):**\n\n*{my_diary_text}*")
+        elif partner_diary_text and not my_diary_text:
+            st.warning(f"🤫 {partner} уже заполнил(а) дневник сегодня! Напишите свою запись ниже, чтобы прочитать её.")
 
-                if match_diary_idx:
-                    sheet.update_cell(match_diary_idx, my_m_idx, mood_emoji)
-                    sheet.update_cell(match_diary_idx, my_d_idx, diary_text.strip())
-                    st.success("Дневник обновлен!")
-                    st.rerun() 
+        st.write("Ваша запись за сегодня (можно редактировать до конца дня):")
+        with st.form("diary_form"):
+            mood_opts = ["😁 Отличное", "😌 Спокойное", "😐 Нормальное", "😔 Грустное", "😡 Злое"]
+            idx_mood = mood_opts.index(my_mood_emoji) if my_mood_emoji in mood_opts else 0
+            
+            mood_emoji = st.selectbox("Ваше настроение:", mood_opts, index=idx_mood)
+            diary_text = st.text_area("Что интересного случилось сегодня?", value=my_diary_text, height=100)
+            
+            if st.form_submit_button("🌸 Сохранить запись"):
+                if not diary_text.strip():
+                    st.warning("Напишите хотя бы пару слов!")
                 else:
-                    new_row = [diary_date_str, "Ежедневный Дневник 🌸", "❌", "❌", "❌", "", ""]
-                    add_cols = [mood_emoji, diary_text.strip(), "", "", ""] if current_user == "Лисичка 🦊" else ["", "", mood_emoji, diary_text.strip(), ""]
-                    sheet.append_row(new_row + add_cols)
-                    st.success("Дневник сохранен!")
-                    st.rerun()
+                    my_m_idx, my_d_idx = (8, 9) if current_user == "Лисичка 🦊" else (10, 11)
+                    
+                    if not my_diary_text:
+                        send_telegram_message(f"🌸 <b>{current_user}</b> заполнил(а) дневник за сегодня! Зайди почитать.")
+
+                    if match_diary_idx:
+                        sheet.update_cell(match_diary_idx, my_m_idx, mood_emoji)
+                        sheet.update_cell(match_diary_idx, my_d_idx, diary_text.strip())
+                        st.success("Дневник обновлен!")
+                        st.rerun() 
+                    else:
+                        new_row = [today_str, "Ежедневный Дневник 🌸", "❌", "❌", "❌", "", ""]
+                        add_cols = [mood_emoji, diary_text.strip(), "", "", ""] if current_user == "Лисичка 🦊" else ["", "", mood_emoji, diary_text.strip(), ""]
+                        sheet.append_row(new_row + add_cols)
+                        st.success("Дневник сохранен!")
+                        st.rerun()
 
 # ----------------- ВКЛАДКА 3: КАПСУЛА -----------------
 with tab3:
@@ -291,7 +312,7 @@ with tab3:
                 if file_url:
                     match_idx = None
                     for i, row in enumerate(records):
-                        if str(row.get('Дата')) == today_str and str(row.get('Ритуал')) != 'Ежедневный Дневник 🌸' and str(r.get('Ритуал')) != '📸 Фото на память':
+                        if str(row.get('Дата')) == today_str and str(row.get('Ритуал')) != 'Ежедневный Дневник 🌸' and str(row.get('Ритуал')) != '📸 Фото на память':
                             match_idx = i + 2
                             break
                     if match_idx: sheet.update_cell(match_idx, 12, file_url)
